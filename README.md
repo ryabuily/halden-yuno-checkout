@@ -62,6 +62,90 @@ safety net *behind* the webhook.
    *QA · double-charge test* panel → **Replay payment request ×2** → both parallel responses
    return the **same** payment id (`deduped`); exactly one charge exists.
 
+## What was broken — the staging flow
+
+Every numbered note is a `BUG #n` annotation you can find verbatim in [`buggy/`](buggy/):
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Browser — holds the SECRET key (BUG 1)
+    participant Y as Yuno API
+    Note over B: BUG 2 — every Yuno call runs client-side<br/>BUG 7 — amount taken from the cart object (price tampering)
+    B->>Y: POST /checkout/sessions — secret key in the headers
+    B->>B: startPayment() BEFORE startCheckout() — BUG 3 (the "SDK not ready" race)
+    B->>B: startCheckout — countryCode hardcoded GB (BUG 4), no actionForm (BUG 5)
+    B->>B: mountCheckoutLite — CARD only, wallets and iDEAL never mounted (BUG 6)
+    B->>Y: POST /payments — no X-Idempotency-Key (BUG 8), button never disabled (BUG 11)
+    Y-->>B: PENDING + sdk_action_required = true
+    Note over B: continuePayment() never called (BUG 9)<br/>only SUCCEEDED handled (BUG 10)<br/>→ 3DS orders hang on "processing" forever
+    Note over B,Y: no webhook endpoint exists — the final status has nowhere to land
+```
+
+> A subtlety the diagram hides: this architecture **cannot even run in a real browser** —
+> the CORS preflight of `api-sandbox.y.uno` refuses the `private-secret-key` header, so
+> every direct call dies before leaving the browser. The runnable [`buggy/`](buggy/) build
+> adds a same-origin pass-through proxy purely so the broken design (and the leak in
+> DevTools) can be demonstrated. Staging "kinda worked" only because something similar
+> must have been in place there too.
+
+## How it was fixed — the reference flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as Browser — public key only
+    participant S as Halden backend — secret key, order store
+    participant Y as Yuno API
+    B->>S: POST /api/session (country)
+    S->>Y: create customer + checkout session — amount from the server-side catalog
+    S-->>B: publicApiKey + checkout_session + per-market method curation
+    B->>B: initialize → startCheckout (ONCE) → mountCheckoutLite per selected method
+    B->>B: Pay → submitOneTimeTokenForm() → OTT arrives via yunoCreatePayment
+    B->>S: POST /api/pay (orderId + OTT)
+    Note over S: per-order guard — already paid or in flight?<br/>→ the SAME payment is returned, Yuno is never called twice
+    S->>Y: POST /payments + deterministic X-Idempotency-Key (order, attempt, token)
+    Y-->>S: PENDING + sdk_action_required
+    S-->>B: payment response
+    B->>B: continuePayment() — ALWAYS after 2xx → 3DS renders in #yuno-action-form
+    Y-->>S: webhook payment.purchase — HMAC verified, fails closed
+    Note over S: order state machine applies the update monotonically
+    B->>S: poll GET /api/orders/:id — the UI renders server truth only
+    Note over S,Y: reconciler polls GET /payments/:id for stuck PENDING orders (safety net)
+```
+
+### The order state machine (server-side truth)
+
+```mermaid
+stateDiagram-v2
+    [*] --> AWAITING_PAYMENT: checkout session created
+    AWAITING_PAYMENT --> PENDING: create-payment → CREATED / PENDING
+    AWAITING_PAYMENT --> PAID: create-payment → SUCCEEDED (frictionless)
+    AWAITING_PAYMENT --> FAILED: create-payment → DECLINED
+    PENDING --> PAID: webhook / reconciler → SUCCEEDED
+    PENDING --> FAILED: webhook / reconciler → DECLINED, EXPIRED, ERROR
+    FAILED --> PENDING: genuine retry — new attempt, fresh idempotency key
+    PAID --> REFUNDED: webhook → REFUNDED
+    note right of PAID
+        Monotonic - a replayed or out-of-order
+        non-final webhook can never downgrade
+        a final state
+    end note
+```
+
+### Why a double-click can never charge twice
+
+```mermaid
+flowchart TD
+    A[Pay clicked twice or request replayed] --> L1{Layer 1 - UI<br/>CTA disabled while in flight}
+    L1 -->|second click blocked| ONE[exactly one charge]
+    L1 -->|replay bypasses the UI| L2{Layer 2 - per-order guard<br/>payment exists or in flight?}
+    L2 -->|yes| SAME[same payment returned<br/>deduped: true]
+    L2 -->|race slips through| L3{Layer 3 - Yuno<br/>same X-Idempotency-Key within 24h}
+    L3 -->|original payment returned| SAME
+    SAME --> ONE
+```
+
 ## Bug map — symptom → cause → fix
 
 | # | Bug (annotated in `buggy/`) | Symptom from the brief | Fix (in `fixed/`) |
@@ -80,6 +164,25 @@ safety net *behind* the webhook.
 **The harmless alarming thing:** the `public-api-key` visible in browser requests. That's
 by design — the public key initializes the SDK; only the *private* key is a leak (and the
 leaked staging key must be rotated).
+
+## Hardening beyond the obvious bugs
+
+Fixing the brief's eleven defects is table stakes. These are the failure modes that only
+surface under adversarial review — each one is implemented in [`fixed/`](fixed/):
+
+| Hardening | The failure it prevents |
+|---|---|
+| **Webhook fails closed** (`401` without a valid `x-hmac-signature`; static `x-api-key`/`x-secret` as an extra layer; constant-time compares) | An internet-reachable (ngrok'd) endpoint accepting **unsigned** requests would let anyone flip any order to PAID |
+| **Monotonic order state machine** | A replayed or out-of-order webhook carrying a non-final status would downgrade a PAID order back to PENDING |
+| **Idempotency key bound to (order, attempt, token)** — not a random UUID per request | Random keys don't dedupe double-clicks at all; a key without the token would wrongly swallow a *genuine* retry after a declined attempt |
+| **In-flight flag is process-lifetime only** (reset on restart, never trusted from disk) | A crash mid-payment would otherwise deadlock the order forever — every later attempt "deduped" against a payment that may not exist |
+| **Server-side pricing** (amount from the catalog, never the request body) | The staging pattern let the client pay £0.01 for any order |
+| **Per-market method curation ∩ account list** | The sandbox account is configured globally — without curation a UK checkout renders PIX, KakaoPay and 7-Eleven; with only curation (no live list) it would render methods the account can't process |
+| **Orders API redacts internals** (`vaulted_token`, `customer_id`, session) + orders view escapes webhook-derived strings | Vault-token references shipped to any browser; stored XSS via a forged webhook payload |
+| **Sandbox-only gate** (refuses to boot with `YUNO_ENVIRONMENT=production`) | A demo repo must not be one env-var away from hitting production |
+| **CTA watchdog** (button re-enables when tokenization fails to start a payment) | Inline card-validation failure would leave the Pay button dead until a page reload |
+| **CORS reality check** (buggy build ships a same-origin proxy) | The browser preflight silently blocks the `private-secret-key` header cross-origin — without knowing this, the "broken" build can't even reproduce the symptoms it's meant to demonstrate |
+| **SDK quirk pinned down**: `startPayment()` before `startCheckout()` *resolves silently* in SDK v1.5 | The brief's "SDK not ready" console error doesn't reproduce by itself — the buggy build logs it deterministically on both outcomes so the race is demonstrable on video |
 
 ## Key decisions
 
