@@ -1,62 +1,78 @@
 # Evidence — the three required behaviours
 
-> Screenshots live in [`evidence/`](evidence/). Log lines below are from `fixed/server.js`
-> stdout; payment ids are sandbox objects verifiable in the Yuno dashboard.
+> Screenshots live in [`evidence/`](evidence/). Payment ids shown are sandbox objects,
+> verifiable in the Yuno dashboard. Secrets are redacted in the one screenshot that
+> exposed them.
+
+## 0. The real problem — private key in the browser (the "went pale" moment)
+
+![Secret key leak](evidence/0-secret-key-leak.png)
+
+`evidence/0-secret-key-leak.png` — the broken build's `POST /payments` request in
+DevTools → Network. The **`Private-Secret-Key` header is present in a browser request**
+(value redacted here; the key has been rotated). The `Public-Api-Key` right below it is
+left visible on purpose — that one is *meant* to be in the browser and is the harmless
+look-alike. Real leak vs. noise, in one frame.
 
 ## 1. Card payment approved end-to-end
 
-- Screenshot: `evidence/1-card-approved-orders-view.png` — `/orders.html` with the order
-  in **PAID**, the payment id, and the update source.
-- Server log:
+![Card approved](evidence/1-card-approved-orders-view.png)
 
-```
-<!-- paste the real lines, e.g.:
-[order] halden-GB-<ts>: AWAITING_PAYMENT → PAID (SUCCEEDED/APPROVED via create-payment)
--->
-```
+`evidence/1-card-approved-orders-view.png` — `/orders.html` (the server-side truth) with
+the order in **PAID**, the Yuno payment id, and the update source.
 
 ## 2. Async payment — pending first, paid only when it truly settles (tab closed)
 
-Flow recorded: pay with the 3DS challenge test card (or iDEAL on the NL tab) → complete
-the bank step → **close the checkout tab immediately** → the order settles server-side.
+Flow: pay with the 3DS challenge card (or iDEAL on the NL tab) → complete the bank step →
+**close the checkout tab immediately** → the order settles server-side, from the webhook.
 
-- Screenshot: `evidence/2a-order-pending.png` — order in **PENDING** after the tab closed.
-- Screenshot: `evidence/2b-order-paid-via-webhook.png` — same order in **PAID**, source
-  `webhook:payment.purchase` (or `reconcile:auto`).
-- Server log:
+![Order pending](evidence/2a-order-pending.png)
 
-```
-<!-- paste the real lines, e.g.:
-[order] halden-NL-<ts>: AWAITING_PAYMENT → PENDING (PENDING/WAITING_ADDITIONAL_STEP via create-payment)
-[order] halden-NL-<ts>: PENDING → PAID (SUCCEEDED/APPROVED via webhook:payment.purchase)
--->
-```
+`evidence/2a-order-pending.png` — the order sits in **PENDING** after the tab was closed.
+
+![Order paid via webhook](evidence/2b-order-paid-via-webhook.png)
+
+`evidence/2b-order-paid-via-webhook.png` — the same order flips to **PAID**, update source
+`webhook:payment.purchase` — the browser was already gone.
+
+![Webhook confirmation](evidence/4-webhook-confirmation.png)
+
+`evidence/4-webhook-confirmation.png` — several orders confirmed **PAID via
+`webhook:payment.purchase`** in the orders view: the final status always arrives on the
+webhook, never from the browser.
 
 ## 3. Repeated / double-clicked payment → one charge, not two
 
-**Broken build (control):** double-clicking Pay creates two payments for one order.
+**Broken build (control):**
 
-- Screenshot: `evidence/3a-buggy-two-payments.png` — Yuno Dashboard → Transactions, two
-  payment ids for the same staging order.
+![Buggy two payments](evidence/3a-buggy-two-payments.png)
 
-**Fixed build:** the *QA · double-charge test* panel re-sends the exact same
-create-payment request twice **in parallel**; both responses carry the same payment id.
+`evidence/3a-buggy-two-payments.png` — Yuno Dashboard → Transactions: **two real charges**
+for the same £149 cart. The staging code even mints a fresh `merchant_order_id` per click,
+so nothing ties them together.
 
-- Screenshot: `evidence/3b-fixed-replay-deduped.png` — both responses, same payment id,
-  `deduped: true` with the guard's reason.
-- Response bodies:
+**Fixed build** — the *QA · double-charge test* panel re-sends the exact same
+create-payment request twice **in parallel**:
 
-```
-<!-- paste the two JSON responses from the QA panel -->
-```
+![Fixed replay deduped](evidence/3b-fixed-replay-deduped.png)
 
-## Webhook authenticity (supporting)
+`evidence/3b-fixed-replay-deduped.png` — both responses carry the **same payment id**
+(`0d9e6846-…`), each `"deduped": true` with reason *"order already paid — no second
+charge"*. One charge, never two.
 
-The webhook endpoint fails closed. Live checks (curl against the running server):
+## Supporting
 
-```
-1) no auth headers                          → 401
-2) correct x-api-key/x-secret, no HMAC      → 401
-3) headers + valid x-hmac-signature         → 200 ok
-4) tampered body with stale signature       → 401
-```
+![SDK not ready](evidence/0b-sdk-not-ready-console.png)
+
+`evidence/0b-sdk-not-ready-console.png` — the console error behind "cards work half the
+time": `startPayment()` was called before `startCheckout()` (BUG #3).
+
+**Webhook fails closed** — the endpoint verifies the HMAC signature and rejects anything
+that isn't authentic (checked live with curl against the running server):
+
+| Request | Result |
+|---|---|
+| no auth headers | `401` |
+| correct `x-api-key`/`x-secret`, no HMAC signature | `401` |
+| headers + valid `x-hmac-signature` | `200 ok` |
+| tampered body with a stale signature | `401` |
