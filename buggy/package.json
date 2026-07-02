@@ -1,0 +1,12 @@
+{
+  "name": "halden-checkout-buggy",
+  "private": true,
+  "description": "Halden staging checkout — the BROKEN version, faithful to the code Sofia shared. For demo/diagnosis only.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5"
+  }
+}

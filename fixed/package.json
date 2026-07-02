@@ -1,0 +1,12 @@
+{
+  "name": "halden-checkout-fixed",
+  "private": true,
+  "description": "Halden embedded checkout on Yuno SDK Lite — corrected reference implementation.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5"
+  }
+}

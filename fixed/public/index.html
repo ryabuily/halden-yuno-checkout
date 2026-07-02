@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halden — Checkout</title>
+<style>
+  :root {
+    --ink: #1b1b1b; --muted: #8a8378; --paper: #faf8f4; --line: #e6e1d8;
+    --accent: #1b1b1b; --danger: #b3261e; --ok: #2e7d32; --pending: #9a6b00;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { overflow-x: hidden; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: var(--paper); color: var(--ink); min-height: 100vh; }
+  .ribbon { background: #1e4d2b; color: #fff; text-align: center; font-size: 13px;
+            letter-spacing: .08em; padding: 7px 12px; text-transform: uppercase; }
+  header { padding: 28px 24px 14px; text-align: center; border-bottom: 1px solid var(--line); }
+  .logo { font-family: Georgia, 'Times New Roman', serif; font-size: 30px; letter-spacing: .35em;
+          text-transform: uppercase; }
+  .tagline { color: var(--muted); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; margin: 6px 0 14px; }
+  .markets { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .markets a { font-size: 12px; letter-spacing: .06em; text-decoration: none; color: var(--muted);
+               border: 1px solid var(--line); border-radius: 20px; padding: 5px 14px; background: #fff; }
+  .markets a.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 20px 64px;
+         display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px; }
+  @media (max-width: 780px) { main { grid-template-columns: 1fr; } }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 24px; min-width: 0; }
+  .panel h2 { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+              margin-bottom: 16px; font-weight: 600; }
+  .item { display: flex; gap: 14px; align-items: center; }
+  .swatch { width: 64px; height: 76px; border-radius: 6px; flex: none;
+            background: linear-gradient(160deg, #45413a, #7a7263 65%, #9d968a); }
+  .item .name { font-weight: 600; }
+  .item .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .totals { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; font-size: 14px; }
+  .totals .row { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--muted); }
+  .totals .grand { color: var(--ink); font-weight: 700; font-size: 16px; }
+  .order-meta { margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.7; word-break: break-all; }
+  .order-meta a { color: inherit; }
+
+  .methods { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .method { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 8px;
+            padding: 12px 14px; cursor: pointer; font-size: 14px; background: #fff; }
+  .method:hover { border-color: var(--muted); }
+  .method.active { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+  .method.disabled { opacity: .5; cursor: not-allowed; }
+  .method .tag { margin-left: auto; font-size: 11px; color: var(--muted); }
+  .wallet-slot { min-height: 0; }
+  .wallet-slot:not(:empty) { margin-bottom: 10px; }
+
+  #yuno-payment-form { min-height: 40px; margin-bottom: 6px; }
+  #yuno-action-form { margin-top: 10px; }
+  #yuno-action-form:not(:empty) { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+
+  .save-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; font-size: 13px; color: var(--muted); }
+  .pay-btn { width: 100%; margin-top: 14px; padding: 15px; font-size: 15px; letter-spacing: .06em;
+             background: var(--accent); color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+  .pay-btn:hover:not(:disabled) { opacity: .92; }
+  .pay-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .status { margin-top: 14px; font-size: 14px; min-height: 22px; line-height: 1.5; }
+  .status.err { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  .status.pending { color: var(--pending); }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line);
+          border-top-color: var(--muted); border-radius: 50%; vertical-align: -2px; margin-right: 8px;
+          animation: r 1s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+
+  details.qa { margin-top: 22px; font-size: 13px; color: var(--muted); }
+  details.qa summary { cursor: pointer; letter-spacing: .04em; }
+  details.qa .qa-body { margin-top: 10px; }
+  .qa-btn { padding: 8px 14px; font-size: 13px; background: #fff; border: 1px solid var(--line);
+            border-radius: 6px; cursor: pointer; }
+  .qa-btn:disabled { opacity: .45; cursor: not-allowed; }
+  pre.qa-out { margin-top: 10px; background: #f4f1ea; border: 1px solid var(--line); border-radius: 6px;
+               padding: 10px; font-size: 11px; overflow-x: auto; max-height: 260px; }
+</style>
+</head>
+<body>
+  <div class="ribbon">Reference build — corrected Yuno SDK Lite integration</div>
+  <header>
+    <div class="logo">Halden</div>
+    <div class="tagline">Premium apparel · UK / EU / Gulf</div>
+    <nav class="markets" id="markets"></nav>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Your order</h2>
+      <div class="item">
+        <div class="swatch" aria-hidden="true"></div>
+        <div>
+          <div class="name" id="product-name">Merino Overshirt</div>
+          <div class="sub" id="product-variant">Slate · Size M</div>
+        </div>
+      </div>
+      <div class="totals">
+        <div class="row"><span>Subtotal</span><span id="subtotal">—</span></div>
+        <div class="row"><span>Shipping</span><span>Free</span></div>
+        <div class="row grand"><span>Total</span><span id="total">—</span></div>
+      </div>
+      <div class="order-meta">
+        Order <span id="order-id">—</span><br>
+        Server truth: <a href="/orders.html" target="_blank" rel="noopener">orders view ↗</a>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Payment</h2>
+      <div class="methods" id="method-list"><em style="color:var(--muted);font-size:13px">Loading payment methods…</em></div>
+
+      <!-- Fixed SDK mount nodes. NEVER reparent #yuno-payment-form: moving it in
+           the DOM tears down the SDK iframe. -->
+      <div id="yuno-payment-form"></div>
+      <div id="yuno-action-form"></div>
+      <!-- hidden slot used once to warm up the SDK bridge -->
+      <div id="yuno-warmup" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden"></div>
+
+      <label class="save-row" id="save-row">
+        <input type="checkbox" id="save-card"> Save this card for my next order
+      </label>
+      <button id="pay-btn" class="pay-btn" disabled>Pay</button>
+      <div id="status" class="status"></div>
+
+      <details class="qa">
+        <summary>QA · double-charge test</summary>
+        <div class="qa-body">
+          <p style="margin-bottom:10px">
+            Re-sends the exact same create-payment request twice, in parallel, after a
+            payment already exists for this order. The server's per-order guard +
+            <code>X-Idempotency-Key</code> return the <em>same</em> payment both times —
+            one charge, never two.
+          </p>
+          <button class="qa-btn" id="qa-replay" disabled>Replay payment request ×2</button>
+          <pre class="qa-out" id="qa-out" hidden></pre>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <script src="https://sdk-web.y.uno/v1.5/main.js"></script>
+  <script src="/checkout.js"></script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halden — Orders (server truth)</title>
+<style>
+  :root { --ink:#1b1b1b; --muted:#8a8378; --paper:#faf8f4; --line:#e6e1d8;
+          --ok:#2e7d32; --pending:#9a6b00; --fail:#b3261e; --wait:#5f6368; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { overflow-x: hidden; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: var(--paper); color: var(--ink); padding: 32px 20px 64px; }
+  h1 { font-family: Georgia, serif; letter-spacing: .2em; text-transform: uppercase;
+       font-size: 22px; text-align: center; }
+  p.sub { text-align: center; color: var(--muted); font-size: 13px; margin: 8px 0 28px; }
+  .wrap { max-width: 1060px; margin: 0 auto; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line);
+          border-radius: 10px; overflow: hidden; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); background: #fcfbf8; }
+  tr:last-child td { border-bottom: 0; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px;
+           font-weight: 600; letter-spacing: .04em; color: #fff; }
+  .badge.PAID { background: var(--ok); } .badge.PENDING { background: var(--pending); }
+  .badge.FAILED { background: var(--fail); } .badge.AWAITING_PAYMENT { background: var(--wait); }
+  .badge.REFUNDED { background: #5b3a8e; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--muted); word-break: break-all; }
+  .src { color: var(--muted); font-size: 11px; }
+  button.rec { padding: 4px 10px; font-size: 11px; border: 1px solid var(--line); background: #fff;
+               border-radius: 6px; cursor: pointer; }
+  .empty { text-align: center; color: var(--muted); padding: 32px; }
+  a.back { display: block; text-align: center; margin-top: 20px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+  <h1>Halden · Orders</h1>
+  <p class="sub">
+    Server-side truth (webhook → reconciler → create-response). Auto-refreshes every 2 s.<br>
+    An order flips to PAID only when the server confirms the final payment status —
+    the browser tab can be long gone.
+  </p>
+  <div class="wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Order</th><th>Market</th><th>Amount</th><th>Order status</th>
+          <th>Payment</th><th>Payment status</th><th>Last update via</th><th>Updated</th><th></th>
+        </tr>
+      </thead>
+      <tbody id="rows"><tr><td colspan="9" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <a class="back" href="/">← back to checkout</a>
+
+<script>
+// Escape everything order-derived before it hits innerHTML — parts of the order
+// (statuses, history source) originate from webhook payloads.
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const BADGES = new Set(['PAID', 'PENDING', 'FAILED', 'AWAITING_PAYMENT', 'REFUNDED'])
+
+async function refresh() {
+  const orders = await fetch('/api/orders').then(r => r.json()).catch(() => [])
+  const tbody = document.getElementById('rows')
+  if (!orders.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="empty">No orders yet — make a payment in the checkout.</td></tr>'
+    return
+  }
+  tbody.innerHTML = orders.map(o => {
+    const last = o.history[o.history.length - 1] || {}
+    const badge = BADGES.has(o.status) ? o.status : ''
+    return `<tr>
+      <td class="mono">${esc(o.id)}</td>
+      <td>${esc(o.country)}</td>
+      <td>${esc(o.currency)} ${Number(o.amount).toFixed(2)}</td>
+      <td><span class="badge ${badge}">${esc(o.status)}</span></td>
+      <td class="mono">${esc(o.paymentId || '—')}</td>
+      <td>${esc(o.paymentStatus || '—')}${o.paymentSubStatus ? ' / ' + esc(o.paymentSubStatus) : ''}</td>
+      <td class="src">${esc(last.source || '—')}</td>
+      <td class="src">${new Date(o.updatedAt).toLocaleTimeString()}</td>
+      <td>${o.status === 'PENDING' && o.paymentId
+          ? `<button class="rec" onclick="reconcile('${esc(o.id)}')">Reconcile now</button>` : ''}</td>
+    </tr>`
+  }).join('')
+}
+async function reconcile(id) {
+  await fetch(`/api/orders/${id}/reconcile`, { method: 'POST' })
+  refresh()
+}
+refresh()
+setInterval(refresh, 2000)
+</script>
+</body>
+</html>

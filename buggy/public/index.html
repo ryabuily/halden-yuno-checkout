@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halden — Checkout (staging, broken)</title>
+<style>
+  :root {
+    --ink: #1b1b1b; --muted: #8a8378; --paper: #faf8f4; --line: #e6e1d8;
+    --accent: #1b1b1b; --danger: #b3261e; --ok: #2e7d32;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { overflow-x: hidden; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: var(--paper); color: var(--ink); min-height: 100vh; }
+  .ribbon { background: var(--danger); color: #fff; text-align: center; font-size: 13px;
+            letter-spacing: .08em; padding: 7px 12px; text-transform: uppercase; }
+  header { padding: 28px 24px 18px; text-align: center; border-bottom: 1px solid var(--line); }
+  .logo { font-family: Georgia, 'Times New Roman', serif; font-size: 30px; letter-spacing: .35em;
+          text-transform: uppercase; }
+  .tagline { color: var(--muted); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 20px 64px;
+         display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  .panel { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 24px; }
+  .panel h2 { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+              margin-bottom: 16px; font-weight: 600; }
+  .item { display: flex; gap: 14px; align-items: center; }
+  .swatch { width: 64px; height: 76px; border-radius: 6px; flex: none;
+            background: linear-gradient(160deg, #45413a, #7a7263 65%, #9d968a); }
+  .item .name { font-weight: 600; }
+  .item .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+  .totals { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; font-size: 14px; }
+  .totals .row { display: flex; justify-content: space-between; margin-bottom: 8px; color: var(--muted); }
+  .totals .grand { color: var(--ink); font-weight: 700; font-size: 16px; }
+  #checkout-root { min-height: 220px; }
+  .pay-btn { width: 100%; margin-top: 18px; padding: 15px; font-size: 15px; letter-spacing: .06em;
+             background: var(--accent); color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+  .pay-btn:hover { opacity: .92; }
+  .status { margin-top: 14px; font-size: 14px; min-height: 22px; }
+  .status.err { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  .status.processing { color: var(--muted); }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line);
+          border-top-color: var(--muted); border-radius: 50%; vertical-align: -2px; margin-right: 8px;
+          animation: r 1s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .note { margin-top: 22px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="ribbon">Staging build — known broken · for diagnosis demo only</div>
+  <header>
+    <div class="logo">Halden</div>
+    <div class="tagline">Premium apparel · UK / EU / Gulf</div>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>Your order</h2>
+      <div class="item">
+        <div class="swatch" aria-hidden="true"></div>
+        <div>
+          <div class="name">Merino Overshirt</div>
+          <div class="sub">Slate · Size M</div>
+        </div>
+      </div>
+      <div class="totals">
+        <div class="row"><span>Subtotal</span><span id="subtotal">£149.00</span></div>
+        <div class="row"><span>Shipping</span><span>Free</span></div>
+        <div class="row grand"><span>Total</span><span id="total">£149.00</span></div>
+      </div>
+      <p class="note">
+        This is the staging code Sofia shared, made runnable. Open DevTools → Network
+        before paying and watch the request headers. Card methods only — Apple Pay,
+        Google Pay, iDEAL and Klarna never appear.
+      </p>
+    </section>
+
+    <section class="panel">
+      <h2>Payment</h2>
+      <!-- The SDK mounts here. BUG #5: no action-form node exists on this page —
+           even if continuePayment() were called, there is no dedicated place for
+           a 3DS challenge to render. -->
+      <div id="checkout-root"></div>
+      <button id="pay-btn" class="pay-btn">Pay £149.00</button>
+      <div id="status" class="status"></div>
+    </section>
+  </main>
+
+  <script src="/config.js"></script>
+  <script src="https://sdk-web.y.uno/v1.5/main.js"></script>
+  <script src="/checkout.js"></script>
+</body>
+</html>

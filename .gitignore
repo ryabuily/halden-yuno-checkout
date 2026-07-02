@@ -1,0 +1,7 @@
+.env
+node_modules/
+*.log
+.DS_Store
+fixed/data/
+evidence/*.mov
+evidence/*.mp4
